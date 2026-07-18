@@ -3,7 +3,7 @@ name: 签到
 on:
   workflow_dispatch:
   schedule:
-    - cron: "10 17 * * *" # 北京时间每天 01:10
+    - cron: "0 1 * * *" # 北京时间每天 09:00
 
 permissions:
   contents: read
@@ -50,6 +50,7 @@ jobs:
         run: npm ci
 
       - name: 执行签到
+        working-directory: .
         run: npm run main
         env:
           USERINFO: ${{ secrets.USERINFO }}
