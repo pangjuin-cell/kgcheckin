@@ -3,7 +3,7 @@ name: 签到
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 1 * * *" # 北京时间每天 09:00
+    - cron: "13 1 * * *" # 北京时间每天 09:13（避开整点高负载，减少延迟）
 
 permissions:
   contents: read
