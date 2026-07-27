@@ -89,14 +89,14 @@ async function main() {
         if (listen.status === 1) {
           printGreen("听歌领取成功")
           listenStatus = '成功'
-        } else if (listen.error_code === 130012) {
+        } else if (listen.error_code === 130012 || listen.error_code === 30002) {
           printGreen("今日已领取")
           listenStatus = '今日已领取'
         } else {
           errorMsg[`${safeNickname} listen`] = summarizeResponse(listen)
-          printRed("听歌领取失败")
+          printYellow("听歌领取失败（酷狗服务端间歇性错误，备份运行会自动补签）")
           listenStatus = '失败'
-          hasError = true
+          // 不再设置 hasError，避免听歌失败导致整个流程报错
         }
 
         printYellow("开始领取VIP...")
@@ -112,13 +112,13 @@ async function main() {
             if (i != 8) {
               await delay(30 * 1000)
             }
-          } else if (ad.error_code === 30002) {
+          } else if (ad.error_code === 30002 || ad.error_code === 30000) {
             printGreen("今天次数已用光")
             break
           } else {
-            printRed(`第${i}次领取失败`)
+            printYellow(`第${i}次领取失败（酷狗服务端间歇性错误，备份运行会自动补签）`)
             errorMsg[`${safeNickname} ad`] = summarizeResponse(ad)
-            hasError = true
+            // 不再设置 hasError，避免单次领取失败导致整个流程报错
             break
           }
         }
