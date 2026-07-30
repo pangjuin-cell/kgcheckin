@@ -102,6 +102,7 @@ async function main() {
         printYellow("开始领取VIP...")
         let claimCount = 0
         let claimTotal = 0
+        let claimNote = ''
         for (let i = 1; i <= 8; i++) {
           // ad获取vip
           const ad = await send(`/youth/vip?timestrap=${Date.now()}`, "GET", headers)
@@ -114,10 +115,12 @@ async function main() {
             }
           } else if (ad.error_code === 30002 || ad.error_code === 30000) {
             printGreen("今天次数已用光")
+            claimNote = '次数已用完'
             break
           } else {
             printYellow(`第${i}次领取失败（酷狗服务端间歇性错误，备份运行会自动补签）`)
             errorMsg[`${safeNickname} ad`] = summarizeResponse(ad)
+            claimNote = '领取中断，备份自动补签'
             // 不再设置 hasError，避免单次领取失败导致整个流程报错
             break
           }
@@ -140,6 +143,7 @@ async function main() {
           status: listenStatus === '失败' || claimCount === 0 ? '部分失败' : '成功',
           listen: listenStatus,
           vipClaim: `${claimCount}/${claimTotal}`,
+          vipClaimNote: claimNote,
           vipExpiry,
           error: ''
         })
@@ -193,7 +197,8 @@ async function main() {
   for (const r of notifyResults) {
     content += `\n【${r.nickname}】\n`
     content += `  🎵 听歌领取: ${r.listen}\n`
-    content += `  🎁 VIP领取: ${r.vipClaim} 次\n`
+    const claimDisplay = r.vipClaimNote ? `${r.vipClaim} 次 (${r.vipClaimNote})` : `${r.vipClaim} 次`
+    content += `  🎁 VIP领取: ${claimDisplay}\n`
     content += `  ⏰ VIP到期: ${r.vipExpiry}\n`
     if (r.error) {
       content += `  ⚠️ 错误: ${r.error}\n`
