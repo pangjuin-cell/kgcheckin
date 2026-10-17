@@ -1,12 +1,12 @@
 name: 签到守护
 
-on:
+"on":
   schedule:
-    - cron: '47 0 * * *'   # 北京时间 08:47 预检（比主签到早，先确认当天是否有过运行）
-    - cron: '23 2 * * *'   # 北京时间 10:23 兜底1
-    - cron: '37 4 * * *'   # 北京时间 12:37 兜底2
-    - cron: '53 6 * * *'   # 北京时间 14:53 兜底3
-    - cron: '13 10 * * *'  # 北京时间 18:13 晚间兜底
+    - cron: '47 0 * * *'
+    - cron: '23 2 * * *'
+    - cron: '37 4 * * *'
+    - cron: '53 6 * * *'
+    - cron: '13 10 * * *'
   workflow_dispatch:
 
 permissions:
@@ -23,43 +23,53 @@ jobs:
         id: check
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WF_ID: '314818558'
         run: |
-          set -euo pipefail
+          set -uo pipefail
+          TODAY=$(TZ=Asia/Shanghai date +%Y-%m-%d)
+          echo "BEIJING_TODAY=$TODAY"
 
-          TODAY=$(TZ='Asia/Shanghai' date +%Y-%m-%d)
-          echo "北京日期: $TODAY"
-
-          # 查询今天是否已有成功的签到运行
-          RESP=$(curl -sS \
+          HTTP=$(curl -sS -o resp.json -w '%{http_code}' \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
-            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/workflows/签到.yml/runs?per_page=30")
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/workflows/${WF_ID}/runs?per_page=50")
+          echo "API HTTP=$HTTP"
+          if [ "$HTTP" != "200" ]; then
+            echo "need=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::查询运行记录失败(HTTP $HTTP)，保守起见直接触发签到"
+            exit 0
+          fi
 
-          read -r OK_COUNT PENDING <<< "$(echo "$RESP" | python3 -c "
+          RESULT=$(python3 - "$TODAY" <<'PYEOF'
 import sys, json
 from datetime import datetime, timedelta, timezone
-d = json.load(sys.stdin)
+
+today = sys.argv[1]
 cst = timezone(timedelta(hours=8))
-today = cst.date()
 ok = pending = 0
-for r in d.get('workflow_runs', []):
+with open('resp.json', encoding='utf-8') as f:
+    data = json.load(f)
+for r in data.get('workflow_runs', []):
     ts = datetime.strptime(r['created_at'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc).astimezone(cst)
-    if ts.date() != today:
+    if ts.strftime('%Y-%m-%d') != today:
         continue
-    if r['status'] != 'completed':
+    if r.get('status') != 'completed':
         pending += 1
-    elif r['conclusion'] == 'success':
+    elif r.get('conclusion') == 'success':
         ok += 1
 print(ok, pending)
-")"
-          echo "今日成功运行数: $OK_COUNT，进行中: $PENDING"
+PYEOF
+)
+          OK_COUNT=$(echo "$RESULT" | awk '{print $1}')
+          PENDING=$(echo "$RESULT" | awk '{print $2}')
+          echo "SUCCESS_TODAY=$OK_COUNT PENDING=$PENDING"
 
           if [ "$OK_COUNT" -gt 0 ]; then
             echo "need=false" >> "$GITHUB_OUTPUT"
-            echo "今日已有成功的签到运行，不再重复触发"
+            echo "今日已有成功签到，跳过"
           elif [ "$PENDING" -gt 0 ]; then
             echo "need=false" >> "$GITHUB_OUTPUT"
-            echo "已有签到运行在进行中，等待其完成"
+            echo "已有签到在进行中，跳过"
           else
             echo "need=true" >> "$GITHUB_OUTPUT"
             echo "今日尚无成功签到，触发补签"
@@ -69,17 +79,19 @@ print(ok, pending)
         if: steps.check.outputs.need == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WF_ID: '314818558'
         run: |
-          set -euo pipefail
-          CODE=$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+          set -uo pipefail
+          CODE=$(curl -sS -o disp.json -w '%{http_code}' -X POST \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             -H "Content-Type: application/json" \
             -d '{"ref":"main"}' \
-            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/workflows/签到.yml/dispatches")
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/workflows/${WF_ID}/dispatches")
           echo "dispatch HTTP $CODE"
           if [ "$CODE" != "204" ]; then
-            echo "::error::触发签到失败，HTTP $CODE"
+            cat disp.json || true
+            echo "::error::触发签到失败 HTTP $CODE"
             exit 1
           fi
-          echo "已触发签到 workflow"
+          echo "已成功触发签到"
