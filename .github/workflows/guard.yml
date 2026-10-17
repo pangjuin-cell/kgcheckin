@@ -1,6 +1,6 @@
-name: 签到守护
+name: CheckinGuard
 
-"on":
+on:
   schedule:
     - cron: '47 0 * * *'
     - cron: '23 2 * * *'
@@ -17,9 +17,8 @@ jobs:
   relay:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-
     steps:
-      - name: 检查今日签到状态
+      - name: Check today status
         id: check
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -33,10 +32,10 @@ jobs:
             -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/workflows/${WF_ID}/runs?per_page=50")
-          echo "API HTTP=$HTTP"
+          echo "API_HTTP=$HTTP"
           if [ "$HTTP" != "200" ]; then
             echo "need=true" >> "$GITHUB_OUTPUT"
-            echo "::warning::查询运行记录失败(HTTP $HTTP)，保守起见直接触发签到"
+            echo "::warning::query failed (HTTP $HTTP), triggering anyway"
             exit 0
           fi
 
@@ -66,16 +65,16 @@ PYEOF
 
           if [ "$OK_COUNT" -gt 0 ]; then
             echo "need=false" >> "$GITHUB_OUTPUT"
-            echo "今日已有成功签到，跳过"
+            echo "already signed today, skip"
           elif [ "$PENDING" -gt 0 ]; then
             echo "need=false" >> "$GITHUB_OUTPUT"
-            echo "已有签到在进行中，跳过"
+            echo "signin in progress, skip"
           else
             echo "need=true" >> "$GITHUB_OUTPUT"
-            echo "今日尚无成功签到，触发补签"
+            echo "no success today, triggering"
           fi
 
-      - name: 触发签到
+      - name: Trigger signin
         if: steps.check.outputs.need == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -91,7 +90,7 @@ PYEOF
           echo "dispatch HTTP $CODE"
           if [ "$CODE" != "204" ]; then
             cat disp.json || true
-            echo "::error::触发签到失败 HTTP $CODE"
+            echo "::error::trigger failed HTTP $CODE"
             exit 1
           fi
-          echo "已成功触发签到"
+          echo "triggered OK"
