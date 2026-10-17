@@ -2,7 +2,9 @@ name: 签到
 on:
   workflow_dispatch:
   schedule:
-    - cron: '10 17 * * *'
+    - cron: '13 1 * * *'   # 北京时间 09:13 主签到
+    - cron: '13 3 * * *'   # 北京时间 11:13 补签（间隔2小时，应对GitHub延迟）
+    - cron: '13 5 * * *'   # 北京时间 13:13 二次补签
 permissions:
   contents: read
   actions: write
