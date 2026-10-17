@@ -1,0 +1,85 @@
+name: 签到守护
+
+on:
+  schedule:
+    - cron: '47 0 * * *'   # 北京时间 08:47 预检（比主签到早，先确认当天是否有过运行）
+    - cron: '23 2 * * *'   # 北京时间 10:23 兜底1
+    - cron: '37 4 * * *'   # 北京时间 12:37 兜底2
+    - cron: '53 6 * * *'   # 北京时间 14:53 兜底3
+    - cron: '13 10 * * *'  # 北京时间 18:13 晚间兜底
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  relay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: 检查今日签到状态
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          TODAY=$(TZ='Asia/Shanghai' date +%Y-%m-%d)
+          echo "北京日期: $TODAY"
+
+          # 查询今天是否已有成功的签到运行
+          RESP=$(curl -sS \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/workflows/签到.yml/runs?per_page=30")
+
+          read -r OK_COUNT PENDING <<< "$(echo "$RESP" | python3 -c "
+import sys, json
+from datetime import datetime, timedelta, timezone
+d = json.load(sys.stdin)
+cst = timezone(timedelta(hours=8))
+today = cst.date()
+ok = pending = 0
+for r in d.get('workflow_runs', []):
+    ts = datetime.strptime(r['created_at'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc).astimezone(cst)
+    if ts.date() != today:
+        continue
+    if r['status'] != 'completed':
+        pending += 1
+    elif r['conclusion'] == 'success':
+        ok += 1
+print(ok, pending)
+")"
+          echo "今日成功运行数: $OK_COUNT，进行中: $PENDING"
+
+          if [ "$OK_COUNT" -gt 0 ]; then
+            echo "need=false" >> "$GITHUB_OUTPUT"
+            echo "今日已有成功的签到运行，不再重复触发"
+          elif [ "$PENDING" -gt 0 ]; then
+            echo "need=false" >> "$GITHUB_OUTPUT"
+            echo "已有签到运行在进行中，等待其完成"
+          else
+            echo "need=true" >> "$GITHUB_OUTPUT"
+            echo "今日尚无成功签到，触发补签"
+          fi
+
+      - name: 触发签到
+        if: steps.check.outputs.need == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          CODE=$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/json" \
+            -d '{"ref":"main"}' \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/workflows/签到.yml/dispatches")
+          echo "dispatch HTTP $CODE"
+          if [ "$CODE" != "204" ]; then
+            echo "::error::触发签到失败，HTTP $CODE"
+            exit 1
+          fi
+          echo "已触发签到 workflow"
