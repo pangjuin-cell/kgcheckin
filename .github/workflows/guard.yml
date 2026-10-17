@@ -35,30 +35,30 @@ jobs:
           echo "API_HTTP=$HTTP"
           if [ "$HTTP" != "200" ]; then
             echo "need=true" >> "$GITHUB_OUTPUT"
-            echo "::warning::query failed (HTTP $HTTP), triggering anyway"
+            echo "::warning::query failed HTTP $HTTP, triggering anyway"
             exit 0
           fi
 
-          RESULT=$(python3 - "$TODAY" <<'PYEOF'
-import sys, json
-from datetime import datetime, timedelta, timezone
+          cat > check.py <<'PYEOF'
+          import sys, json
+          from datetime import datetime, timedelta, timezone
+          today = sys.argv[1]
+          cst = timezone(timedelta(hours=8))
+          ok = pending = 0
+          with open('resp.json', encoding='utf-8') as f:
+              data = json.load(f)
+          for r in data.get('workflow_runs', []):
+              ts = datetime.strptime(r['created_at'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc).astimezone(cst)
+              if ts.strftime('%Y-%m-%d') != today:
+                  continue
+              if r.get('status') != 'completed':
+                  pending += 1
+              elif r.get('conclusion') == 'success':
+                  ok += 1
+          print(f'{ok} {pending}')
+          PYEOF
 
-today = sys.argv[1]
-cst = timezone(timedelta(hours=8))
-ok = pending = 0
-with open('resp.json', encoding='utf-8') as f:
-    data = json.load(f)
-for r in data.get('workflow_runs', []):
-    ts = datetime.strptime(r['created_at'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc).astimezone(cst)
-    if ts.strftime('%Y-%m-%d') != today:
-        continue
-    if r.get('status') != 'completed':
-        pending += 1
-    elif r.get('conclusion') == 'success':
-        ok += 1
-print(ok, pending)
-PYEOF
-)
+          RESULT=$(python3 check.py "$TODAY")
           OK_COUNT=$(echo "$RESULT" | awk '{print $1}')
           PENDING=$(echo "$RESULT" | awk '{print $2}')
           echo "SUCCESS_TODAY=$OK_COUNT PENDING=$PENDING"
